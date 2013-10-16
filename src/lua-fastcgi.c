@@ -73,7 +73,9 @@ static void printcfg(LF_config *cfg)
 
 static void printvars(FCGX_Request *request)
 {
-	for(int i=0; request->envp[i] != NULL; i++){
+	unsigned int i;
+
+	for(i=0; request->envp[i] != NULL; i++){
 		printf("%s\n", request->envp[i]);
 	}
 	printf("\n");
@@ -146,7 +148,7 @@ void *thread_run(void *arg)
 			case LF_ERRNOPATH: senderror(500, "SCRIPT_FILENAME not provided"); break;
 			case LF_ERRNONAME: senderror(500, "SCRIPT_NAME not provided"); break;
 		default:
-			senderror(500, "Unable to handle the request");
+			senderror(500, "Fail to handle the request");
 			break;
 		}
 

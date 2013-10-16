@@ -32,6 +32,30 @@ void LF_printstack(lua_State *l)
 }
 #endif
 
+static inline int errno_to_lfno(int no)
+{
+	int ret;
+
+	switch(no) {
+	case EACCES:
+		ret = LF_ERRACCESS;
+		break;
+
+	case ENOENT:
+		ret = LF_ERRNOTFOUND;
+		break;
+
+	case ENOMEM:
+		ret = LF_ERRMEMORY;
+		break;
+
+	default:
+		ret = LF_ERRANY;
+		break;
+	}
+
+	return ret;
+}
 
 // Gets current thread usage
 static int LF_threadusage(struct timeval *tv)
@@ -368,7 +392,9 @@ void LF_parserequest(lua_State *l, FCGX_Request *request, LF_state *state)
 int LF_fileload(lua_State *l, const char *name, char *scriptpath)
 {
 	char *script = NULL;
-	int fd = -1, r = 0;
+	int fd = -1,
+		ret = 0,
+		res = 0;
 	struct stat sb;
 	
 	if(scriptpath == NULL){ return LF_ERRNOPATH; }
@@ -381,42 +407,68 @@ int LF_fileload(lua_State *l, const char *name, char *scriptpath)
 	scriptname[0] = '=';
 	memcpy(&scriptname[1], name, namelen+1);
 
-	if((fd = open(scriptpath, O_RDONLY)) == -1){ goto errorL; }
-	
-	if(fstat(fd, &sb) == -1){ goto errorL; }
-	
-	if(sb.st_size <= 0 || sb.st_size > (off_t)SIZE_MAX){ goto errorL; }
-
-	if((script = mmap(NULL, (size_t)sb.st_size, PROT_READ, MAP_SHARED, fd, 0)) == NULL){
-		goto errorL;
+	if((fd = open(scriptpath, O_RDONLY)) == -1){
+		fprintf(stderr, "open(%s) failed: %m\n", scriptpath);
+		ret = errno_to_lfno(errno);
+		goto end;
 	}
 	
-	if(madvise(script, (size_t)sb.st_size, MADV_SEQUENTIAL) == -1){ goto errorL; }
+	if(fstat(fd, &sb) == -1){
+		fprintf(stderr, "fstat(%s) failed: %m\n", scriptpath);
+		ret = errno_to_lfno(errno);
+		goto end;
+	}
+	
+	if(sb.st_size <= 0 || sb.st_size > (off_t)SIZE_MAX){
+		fprintf(stderr, "invalid size '%lld' for script %s\n",
+			sb.st_size, scriptpath);
+		ret = LF_ERRMEMORY;
+		goto end;
+	}
+
+	script = mmap(NULL, (size_t)sb.st_size, PROT_READ, MAP_SHARED, fd, 0);
+	if(script == NULL){
+		fprintf(stderr, "mmap(%lld, %s) failed: %m\n",
+			sb.st_size, scriptpath);
+		ret = errno_to_lfno(errno);
+		goto end;
+	}
+	
+	if(madvise(script, (size_t)sb.st_size, MADV_SEQUENTIAL) == -1){
+		fprintf(stderr, "madvise(%p, %lld) failed: %m\n",
+			script, sb.st_size);
+		ret = errno_to_lfno(errno);
+		goto end;
+	}
 	
 	if(sb.st_size > 3 && memcmp(script, LUA_SIGNATURE, 4) == 0){
-		r = LF_ERRBYTECODE;
-	} else {
-		switch(luaL_loadbuffer(l, script, (size_t)sb.st_size, scriptname)){
-		case LUA_ERRSYNTAX: r = LF_ERRSYNTAX; break;
-		case LUA_ERRMEM: r = LF_ERRMEMORY; break;
-		default: return r = LF_ERRANY;
-		}
+		fprintf(stderr, "no found the lua signature in %s\n",
+			scriptname);
+		ret = LF_ERRBYTECODE;
+		goto end;
 	}
 
-	if(script != NULL){ munmap(script, (size_t)sb.st_size); }
-	if(fd != -1){ close(fd); }
-	return r;
-
-	errorL:
-	if(script != NULL){ munmap(script, (size_t)sb.st_size); }
-	if(fd != -1){ close(fd); }
-	switch(errno){
-	case EACCES: return r = LF_ERRACCESS;
-	case ENOENT: return r = LF_ERRNOTFOUND;
-	case ENOMEM: return r = LF_ERRMEMORY;
-	default: return r = LF_ERRANY;
+	res = luaL_loadbuffer(l, script, (size_t)sb.st_size, scriptname);
+	if(res == LUA_ERRSYNTAX){
+		fprintf(stderr, "%s: syntax error\n", scriptname);
+		ret = LF_ERRSYNTAX;
+		goto end;
+	} else if(ret == LUA_ERRMEM){
+		fprintf(stderr, "%s: memory error\n", scriptname);
+		ret = LF_ERRMEMORY;
+		goto end;
 	}
-	return r;
+
+end:
+	if(script != NULL){
+		munmap(script, (size_t)sb.st_size);
+	}
+
+	if(fd != -1){
+		close(fd);
+	}
+
+	return ret;
 }
 
 
