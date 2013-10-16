@@ -1,6 +1,5 @@
-CFLAGS=-c -std=gnu99 -Wall
-LDFLAGS=-O2 -Wl,-Bstatic -lfcgi -llua5.1 -Wl,-Bdynamic -lm -lpthread
-
+CFLAGS+=-c -std=gnu99 -Wall
+LDFLAGS+=-O2 -Wl,-Bstatic -lfcgi -llua -Wl,-Bdynamic -lm -lpthread
 
 .c.o:
 	$(CC) $(CFLAGS) $< -o $@

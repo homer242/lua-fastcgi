@@ -8,7 +8,7 @@
 #include <fcgi_config.h>
 #include <fcgiapp.h>
 
-#include <lua5.1/lua.h>
+#include <lua.h>
 #include <pthread.h>
 
 #include "lua.h"
