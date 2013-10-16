@@ -33,5 +33,5 @@ return {
 	output_max = 65536,
 
 	-- Default content type returned in header
-	content_type = "text/html; charset=iso-8859-1"
+	content_type = "text/plain"
 }
