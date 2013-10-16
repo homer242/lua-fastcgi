@@ -1,5 +1,5 @@
 AC_PREREQ(2.62)
-AC_INIT(lua-fastcgi, 1.0, viallard@syscom.ch)
+AC_INIT(lua-fastcgi, 0.1.1, viallard@syscom.ch)
 AM_INIT_AUTOMAKE([foreign])
 
 sinclude(m4/ax_cflags_gcc_option.m4)
