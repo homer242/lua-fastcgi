@@ -4,6 +4,7 @@
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <fcgi_config.h>
 #include <fcgiapp.h>
@@ -11,25 +12,46 @@
 #include <lua.h>
 #include <pthread.h>
 
-#include "lua.h"
+#include "lf.h"
 #include "config.h"
 #include "lua-fastcgi.h"
 
+static inline const char *http_status_string(unsigned int code)
+{
+	const char *ret;
 
-static char *http_status_strings[] = {
-	[200] = "OK",
-	[403] = "Forbidden",
-	[404] = "Not Found",
-	[500] = "Internal Server Error"
-};
+	switch(code)
+	{
+	case 200:
+		ret = "OK";
+		break;
 
+	case 403:
+		ret = "Forbidden";
+		break;
 
-#define senderror(status_code,error_string) \
-	if(!state.committed){ \
-			FCGX_FPrintF(request.out, "Status: %d %s\r\n", status_code, http_status_strings[status_code]); \
-			FCGX_FPrintF(request.out, "Content-Type: %s\r\n\r\n", config->content_type); \
-			state.committed = 1; \
-	} \
+	case 404:
+		ret = "Not found";
+		break;
+
+	case 500:
+		ret = "Internal Server Error";
+		break;
+
+	default:
+		ret = "";
+		break;
+	}
+
+	return ret;
+}
+
+#define senderror(status_code, error_string)				\
+	if(!state.committed){						\
+		FCGX_FPrintF(request.out, "Status: %d %s\r\n", status_code, http_status_string(status_code)); \
+		FCGX_FPrintF(request.out, "Content-Type: %s\r\n\r\n", config->content_type); \
+		state.committed = 1;					\
+	}								\
 	FCGX_PutS(error_string, state.response);
 
 
@@ -111,18 +133,21 @@ void *thread_run(void *arg)
 				} else if(!state.committed){
 					senderror(200, "");
 				}
-			break;
+				break;
 
 			case LF_ERRACCESS: senderror(403, "access denied"); break;
 			case LF_ERRMEMORY: senderror(500, "not enough memory"); break;
 			case LF_ERRNOTFOUND:
 				printf("404\n");
 				senderror(404, "no such file or directory");
-			break;
+				break;
 			case LF_ERRSYNTAX: senderror(500, lua_tostring(l, -1)); break;
 			case LF_ERRBYTECODE: senderror(403, "compiled bytecode not supported"); break;
 			case LF_ERRNOPATH: senderror(500, "SCRIPT_FILENAME not provided"); break;
 			case LF_ERRNONAME: senderror(500, "SCRIPT_NAME not provided"); break;
+		default:
+			senderror(500, "Unable to handle the request");
+			break;
 		}
 
 		FCGX_Finish_r(&request);
@@ -131,8 +156,11 @@ void *thread_run(void *arg)
 }
 
 
-int main()
+int main(void)
 {
+	unsigned int i;
+	const char *cfg_filename = NULL;
+
 	if(FCGX_Init() != 0){
 		printf("FCGX_Init() failure\n");
 		exit(EXIT_FAILURE);
@@ -144,15 +172,24 @@ int main()
 		exit(EXIT_FAILURE);
 	}
 
-	if(LF_loadconfig(config, "./lua-fastcgi.lua")){
-		printf("Error loading lua-fastcgi.lua\n");
+	if(access("/etc/lua-fastcgi.lua", F_OK) == 0){
+		cfg_filename = "/etc/lua-fastcgi.lua";
+	} else if(access("lua-fastcgi.lua", F_OK) == 0) {
+		cfg_filename = "lua-fastcgi.lua";
+	} else {
+		printf("Warning: no found lua-fastcgi.lua config file");
+	}
+
+	if(cfg_filename != NULL
+	   && LF_loadconfig(config, cfg_filename) != 0){
+		printf("Error loading %s\n", cfg_filename);
 	}
 
 	#ifdef DEBUG
 	printcfg(config);
 	#endif
 
-	int socket = FCGX_OpenSocket(config->listen, config->backlog);
+	int socket = FCGX_OpenSocket(config->listen, (int)config->backlog);
 	if(socket < 0){
 		printf("FCGX_OpenSocket() failure: could not open %s\n", config->listen);
 		exit(EXIT_FAILURE);
@@ -168,7 +205,7 @@ int main()
 		pthread_attr_t attr;
 		pthread_attr_init(&attr);
 		pthread_t threads[config->threads];
-		for(int i=0; i < config->threads; i++){
+		for(i=0; i < config->threads; i++){
 			int r = pthread_create(&threads[i], &attr, &thread_run, params);
 			if(r){
 				printf("Thread creation error: %d\n", r);

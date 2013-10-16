@@ -1,3 +1,6 @@
+#ifndef LUAFASTCGI_LF_H_
+#define LUAFASTCGI_LF_H_
+
 #define LF_ERRNONE     0
 #define LF_ERRANY      1
 #define LF_ERRACCESS   2
@@ -22,10 +25,12 @@ typedef struct {
 
 lua_State *LF_newstate(int, char *);
 LF_limits *LF_newlimits();
-void LF_setlimits(LF_limits *, size_t, size_t, uint32_t, uint32_t);
+void LF_setlimits(LF_limits *, size_t, size_t, long int, long int);
 void LF_enablelimits(lua_State *, LF_limits *);
 void LF_parserequest(lua_State *l, FCGX_Request *, LF_state *);
 void LF_emptystack(lua_State *);
 int LF_fileload(lua_State *, const char *, char *);
 int LF_loadscript(lua_State *);
 void LF_closestate(lua_State *);
+
+#endif

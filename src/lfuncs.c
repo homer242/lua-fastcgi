@@ -7,7 +7,7 @@
 #include <lua.h>
 #include <lauxlib.h>
 
-#include "lua.h"
+#include "lf.h"
 #include "lfuncs.h"
 
 
@@ -51,7 +51,7 @@ static int LF_pprint(lua_State *l, int cr)
 			}
 
 			FCGX_PutStr("Status: ", 8, state->response);
-			FCGX_PutStr(str, len, state->response);
+			FCGX_PutStr(str, (int)len, state->response);
 			FCGX_PutStr("\r\n", 2, state->response);
 			state->committed = 1;
 		}
@@ -81,9 +81,9 @@ static int LF_pprint(lua_State *l, int cr)
 				*limit -= (vallen+keylen+4);
 			}
 
-			FCGX_PutStr(key, keylen, state->response);
+			FCGX_PutStr(key, (int)keylen, state->response);
 			FCGX_PutStr(": ", 2, state->response);
-			FCGX_PutStr(val, vallen, state->response);
+			FCGX_PutStr(val, (int)vallen, state->response);
 			FCGX_PutStr("\r\n", 2, state->response);
 
 			state->committed = 1;
@@ -102,7 +102,9 @@ static int LF_pprint(lua_State *l, int cr)
 
 	size_t strlen;
 	const char *str;
-	for(int i=1; i <= args; i++){
+	int i;
+
+	for(i=1; i <= args; i++){
 		switch(lua_type(l, i)){
 			case LUA_TSTRING:
 			case LUA_TNUMBER:
@@ -113,7 +115,7 @@ static int LF_pprint(lua_State *l, int cr)
 					*limit -= strlen;
 				}
 
-				FCGX_PutStr(str, strlen, state->response);
+				FCGX_PutStr(str, (int)strlen, state->response);
 			break;
 
 			default: /* Ignore other types */ break;
@@ -203,39 +205,43 @@ int LF_loadfile(lua_State *l)
 	}
 
 	switch(LF_fileload(l, &spath[0], &hpath[0])){
-		case 0:
-			return 1;
+	case 0:
+		return 1;
 		break;
 
-		case LF_ERRACCESS:
-			lua_pushnil(l);
-			lua_pushstring(l, "Access denied.");
+	case LF_ERRACCESS:
+		lua_pushnil(l);
+		lua_pushstring(l, "Access denied.");
 		break;
 
-		case LF_ERRMEMORY:
-			lua_pushnil(l);
-			lua_pushstring(l, "Not enough memory.");
+	case LF_ERRMEMORY:
+		lua_pushnil(l);
+		lua_pushstring(l, "Not enough memory.");
 		break;
 
-		case LF_ERRNOTFOUND:
-			lua_pushnil(l);
-			lua_pushstring(l, "No such file or directory.");
+	case LF_ERRNOTFOUND:
+		lua_pushnil(l);
+		lua_pushstring(l, "No such file or directory.");
 		break;
 
-		case LF_ERRSYNTAX:
-			lua_pushnil(l);
-			lua_insert(l, -2);
+	case LF_ERRSYNTAX:
+		lua_pushnil(l);
+		lua_insert(l, -2);
 		break;
 
-		case LF_ERRBYTECODE:
-			lua_pushnil(l);
-			lua_pushstring(l, "Compiled bytecode not supported.");
+	case LF_ERRBYTECODE:
+		lua_pushnil(l);
+		lua_pushstring(l, "Compiled bytecode not supported.");
 		break;
 
-		case LF_ERRNOPATH:
-		case LF_ERRNONAME:
-			lua_pushnil(l);
-			lua_pushstring(l, "Invalid path.");
+	case LF_ERRNOPATH:
+	case LF_ERRNONAME:
+		lua_pushnil(l);
+		lua_pushstring(l, "Invalid path.");
+		break;
+	default:
+		lua_pushnil(l);
+		lua_pushstring(l, "fileload failed.");
 		break;
 	}
 	

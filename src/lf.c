@@ -17,7 +17,7 @@
 #include <lauxlib.h>
 #include <lualib.h>
 
-#include "lua.h"
+#include "lf.h"
 #include "lfuncs.h"
 
 
@@ -56,6 +56,8 @@ static int LF_threadusage(struct timeval *tv)
 // limits cpu usage
 static void LF_limit_hook(lua_State *l, lua_Debug *d)
 {
+	(void)d;
+
 	lua_pushstring(l, "CPU_LIMIT");
 	lua_rawget(l, LUA_REGISTRYINDEX);
 	struct timeval *limit = lua_touserdata(l, -1);
@@ -68,7 +70,7 @@ static void LF_limit_hook(lua_State *l, lua_Debug *d)
 
 
 // removes global variables
-static void LF_nilglobal(lua_State *l, char *var)
+static void LF_nilglobal(lua_State *l, const char *var)
 {
 	lua_pushnil(l);
 	lua_setglobal(l, var);
@@ -105,7 +107,7 @@ LF_limits *LF_newlimits()
 }
 
 
-void LF_setlimits(LF_limits *limits, size_t memory, size_t output, uint32_t cpu_sec, uint32_t cpu_usec)
+void LF_setlimits(LF_limits *limits, size_t memory, size_t output, long int cpu_sec, long int cpu_usec)
 {
 	limits->memory = memory;
 	limits->output = output;
@@ -205,7 +207,7 @@ lua_State *LF_newstate(int sandbox, char *content_type)
 
 
 // Set GET variables
-static void LF_parsequerystring(lua_State *l, char *query_string, char *table)
+static void LF_parsequerystring(lua_State *l, char *query_string, const char *table)
 {
 	lua_newtable(l);
 
@@ -221,7 +223,9 @@ static void LF_parsequerystring(lua_State *l, char *query_string, char *table)
 			case '=':
 				// Push a key, if it's valid and there's not already one
 				if(lua_gettop(l) == stack){
-					if((nptr-sptr) > 0){ lua_pushlstring(l, sptr, (nptr - sptr)); }
+					if((nptr-sptr) > 0){
+						lua_pushlstring(l, sptr, (size_t)(nptr - sptr));
+					}
 					sptr = nptr;
 				} else {
 					*nptr++ = '=';
@@ -230,7 +234,9 @@ static void LF_parsequerystring(lua_State *l, char *query_string, char *table)
 
 			case '&':
 				// Push key or value if valid
-				if((nptr-sptr) > 0){ lua_pushlstring(l, sptr, (nptr - sptr)); }
+				if((nptr-sptr) > 0){
+					lua_pushlstring(l, sptr, (size_t)(nptr - sptr));
+				}
 
 				// Push value, if there is already a key
 				if(lua_gettop(l) == (stack+1)){ lua_pushstring(l, ""); }
@@ -245,8 +251,8 @@ static void LF_parsequerystring(lua_State *l, char *query_string, char *table)
 				// Decode hex percent encoded sets, if valid
 				char c1 = *(optr+1), c2 = *(optr+2);
 				if(isxdigit(c1) && isxdigit(c2)){
-					char digit = 16 * (c1 >= 'A' ? (c1 & 0xdf) - '7' : (c1 - '0'));
-					digit += (c2 >= 'A' ? (c2 & 0xdf) - '7' : (c2 - '0'));
+					char digit = (char)(16 * (c1 >= 'A' ? (c1 & 0xdf) - '7' : (c1 - '0')));
+					digit = (char)(digit + (c2 >= 'A' ? (c2 & 0xdf) - '7' : (c2 - '0')));
 					*nptr++ = digit;
 					optr += 2;
 				} else {
@@ -256,7 +262,9 @@ static void LF_parsequerystring(lua_State *l, char *query_string, char *table)
 
 			case '\0':
 				// Push key or value if valid
-				if((nptr-sptr) > 0){ lua_pushlstring(l, sptr, (nptr - sptr)); }
+				if((nptr-sptr) > 0){
+					lua_pushlstring(l, sptr, (size_t)(nptr - sptr));
+				}
 
 				// Push value, if needed
 				if(lua_gettop(l) == (stack+1)){ lua_pushstring(l, ""); }
@@ -282,6 +290,7 @@ void LF_parserequest(lua_State *l, FCGX_Request *request, LF_state *state)
 {
 	uintmax_t content_length = 0;
 	char *content_type = NULL;
+	char **p;
 
 	state->committed = 0;
 	state->response = request->out;
@@ -290,51 +299,53 @@ void LF_parserequest(lua_State *l, FCGX_Request *request, LF_state *state)
 	lua_rawset(l, LUA_REGISTRYINDEX);
 
 	lua_newtable(l);
-	for(char **p = request->envp; *p; ++p){
+	for(p = request->envp; *p; ++p){
 		char *vptr = strchr(*p, '=');
-		int keylen = (vptr - *p);
+		size_t keylen = (size_t)(vptr - *p);
 
 		lua_pushlstring(l, *p, keylen); // Push Key
 		lua_pushstring(l, (vptr+1)); // Push Value
 		lua_rawset(l, 1); // Set key/value into table
 		
 		switch(keylen){
-			case 11:
-				if(memcmp(*p, "SCRIPT_NAME", 11) == 0){
-					lua_pushstring(l, "SCRIPT_NAME");
-					lua_pushlightuserdata(l, (vptr+1));
-					lua_rawset(l, LUA_REGISTRYINDEX);
-				}
+		case 11:
+			if(memcmp(*p, "SCRIPT_NAME", 11) == 0){
+				lua_pushstring(l, "SCRIPT_NAME");
+				lua_pushlightuserdata(l, (vptr+1));
+				lua_rawset(l, LUA_REGISTRYINDEX);
+			}
 			break;
 
-			case 12: 
-				if(memcmp(*p, "QUERY_STRING", 12) == 0){
-					LF_parsequerystring(l, (vptr+1), "GET");
-				} if(memcmp(*p, "CONTENT_TYPE", 12) == 0){
-					content_type = (vptr+1);
-				}
+		case 12: 
+			if(memcmp(*p, "QUERY_STRING", 12) == 0){
+				LF_parsequerystring(l, (vptr+1), "GET");
+			} if(memcmp(*p, "CONTENT_TYPE", 12) == 0){
+				content_type = (vptr+1);
+			}
 			break;
 
-			case 13:
-				if(memcmp(*p, "DOCUMENT_ROOT", 13) == 0){
-					lua_pushstring(l, "DOCUMENT_ROOT");
-					lua_pushlightuserdata(l, (vptr+1));
-					lua_rawset(l, LUA_REGISTRYINDEX);
-				}
+		case 13:
+			if(memcmp(*p, "DOCUMENT_ROOT", 13) == 0){
+				lua_pushstring(l, "DOCUMENT_ROOT");
+				lua_pushlightuserdata(l, (vptr+1));
+				lua_rawset(l, LUA_REGISTRYINDEX);
+			}
 			break;
 
-			case 14:
-				if(memcmp(*p, "CONTENT_LENGTH", 14) == 0){
-					content_length = strtoumax((vptr+1), NULL, 10);
-				}
+		case 14:
+			if(memcmp(*p, "CONTENT_LENGTH", 14) == 0){
+				content_length = strtoumax((vptr+1), NULL, 10);
+			}
 			break;
 
-			case 15:
-				if(memcmp(*p, "SCRIPT_FILENAME", 15) == 0){
-					lua_pushstring(l, "SCRIPT_FILENAME");
-					lua_pushlightuserdata(l, (vptr+1));
-					lua_rawset(l, LUA_REGISTRYINDEX);
-				}
+		case 15:
+			if(memcmp(*p, "SCRIPT_FILENAME", 15) == 0){
+				lua_pushstring(l, "SCRIPT_FILENAME");
+				lua_pushlightuserdata(l, (vptr+1));
+				lua_rawset(l, LUA_REGISTRYINDEX);
+			}
+			break;
+		default:
 			break;
 		}
 	}
@@ -343,7 +354,7 @@ void LF_parserequest(lua_State *l, FCGX_Request *request, LF_state *state)
 	if(content_length > 0 && content_type != NULL && memcmp(content_type, "application/x-www-form-urlencoded", 33) == 0){
 		char *content = lua_newuserdata(l, content_length+1);
 		int r = FCGX_GetStr(
-			content, (content_length > INT_MAX ? INT_MAX : content_length),
+			content, (int)(content_length > INT_MAX ? INT_MAX : content_length),
 			request->in
 		);
 		*(content + r) = 0; // Add NUL byte at end for proper string
@@ -374,33 +385,36 @@ int LF_fileload(lua_State *l, const char *name, char *scriptpath)
 	
 	if(fstat(fd, &sb) == -1){ goto errorL; }
 	
-	if((script = mmap(NULL, sb.st_size, PROT_READ, MAP_SHARED, fd, 0)) == NULL){
+	if(sb.st_size <= 0 || sb.st_size > (off_t)SIZE_MAX){ goto errorL; }
+
+	if((script = mmap(NULL, (size_t)sb.st_size, PROT_READ, MAP_SHARED, fd, 0)) == NULL){
 		goto errorL;
 	}
 	
-	if(madvise(script, sb.st_size, MADV_SEQUENTIAL) == -1){ goto errorL; }
+	if(madvise(script, (size_t)sb.st_size, MADV_SEQUENTIAL) == -1){ goto errorL; }
 	
 	if(sb.st_size > 3 && memcmp(script, LUA_SIGNATURE, 4) == 0){
 		r = LF_ERRBYTECODE;
 	} else {
-		switch(luaL_loadbuffer(l, script, sb.st_size, scriptname)){
-			case LUA_ERRSYNTAX: r = LF_ERRSYNTAX; break;
-			case LUA_ERRMEM: r = LF_ERRMEMORY; break;
+		switch(luaL_loadbuffer(l, script, (size_t)sb.st_size, scriptname)){
+		case LUA_ERRSYNTAX: r = LF_ERRSYNTAX; break;
+		case LUA_ERRMEM: r = LF_ERRMEMORY; break;
+		default: return r = LF_ERRANY;
 		}
 	}
 
-	if(script != NULL){ munmap(script, sb.st_size); }
+	if(script != NULL){ munmap(script, (size_t)sb.st_size); }
 	if(fd != -1){ close(fd); }
 	return r;
 
 	errorL:
-	if(script != NULL){ munmap(script, sb.st_size); }
+	if(script != NULL){ munmap(script, (size_t)sb.st_size); }
 	if(fd != -1){ close(fd); }
 	switch(errno){
-		case EACCES: return r = LF_ERRACCESS;
-		case ENOENT: return r = LF_ERRNOTFOUND;
-		case ENOMEM: return r = LF_ERRMEMORY;
-		default: return r = LF_ERRANY;
+	case EACCES: return r = LF_ERRACCESS;
+	case ENOENT: return r = LF_ERRNOTFOUND;
+	case ENOMEM: return r = LF_ERRMEMORY;
+	default: return r = LF_ERRANY;
 	}
 	return r;
 }
