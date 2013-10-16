@@ -14,8 +14,8 @@ return {
 
 	-- Indicates if states should be sandboxed (i.e. Denied access to
 	-- file system resources or system-level functions)
-	-- Default: true
-	sandbox  = true,
+	-- Default: false
+	sandbox  = false,
 
 	-- Maximum amount of memory a state may consume or 0 for no limit
 	-- Default: 65536
