@@ -210,6 +210,8 @@ lua_State *LF_newstate(int sandbox, char *content_type)
 		lua_register(l, "loadstring", &LF_loadstring);
 		lua_register(l, "loadfile", &LF_loadfile);
 		lua_register(l, "dofile", &LF_dofile);
+	} else {
+		luaL_openlibs(l);
 	}
 
 	// Register the print function
