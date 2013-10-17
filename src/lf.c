@@ -423,7 +423,7 @@ int LF_fileload(lua_State *l, const char *name, char *scriptpath)
 	
 	if(sb.st_size <= 0 || sb.st_size > (off_t)SIZE_MAX){
 		fprintf(stderr, "invalid size '%lld' for script %s\n",
-			sb.st_size, scriptpath);
+			(long long int)sb.st_size, scriptpath);
 		ret = LF_ERRMEMORY;
 		goto end;
 	}
@@ -431,14 +431,14 @@ int LF_fileload(lua_State *l, const char *name, char *scriptpath)
 	script = mmap(NULL, (size_t)sb.st_size, PROT_READ, MAP_SHARED, fd, 0);
 	if(script == NULL){
 		fprintf(stderr, "mmap(%lld, %s) failed: %m\n",
-			sb.st_size, scriptpath);
+			(long long int)sb.st_size, scriptpath);
 		ret = errno_to_lfno(errno);
 		goto end;
 	}
 	
 	if(madvise(script, (size_t)sb.st_size, MADV_SEQUENTIAL) == -1){
 		fprintf(stderr, "madvise(%p, %lld) failed: %m\n",
-			script, sb.st_size);
+			script,(long long int) sb.st_size);
 		ret = errno_to_lfno(errno);
 		goto end;
 	}
